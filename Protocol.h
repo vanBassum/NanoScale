@@ -5,6 +5,7 @@ class MyProtocolHandler;
 
 // Define a function pointer type for message handlers
 typedef void (*MessageHandler)(MyProtocolHandler&, char*, size_t);
+typedef void (*Callback)(MyProtocolHandler&);
 
 // Command registration structure
 struct Command {
@@ -20,7 +21,20 @@ private:
     char buffer[64]; // Buffer to store incoming data
     size_t bufferIndex; // Current index in the buffer
 
+    static void HandleOnOverflow(MyProtocolHandler& protocol)
+    {
+        protocol.Send("ERRR", "Overflow");
+    }
+
+    static void HandleOnCommandNotFound(MyProtocolHandler& protocol)
+    {
+        protocol.Send("ERRR", "Command not found");
+    }
+
 public:
+    Callback OnOverflow = HandleOnOverflow;
+    Callback OnCommandNotFound = HandleOnCommandNotFound;
+
     // Constructor
     MyProtocolHandler(Stream& stream) : dataStream(stream), commandRegister(nullptr), commandCount(0), bufferIndex(0) {
 
@@ -54,8 +68,8 @@ public:
                 // Process the complete frame (message)
                 ProcessFrame();
             } else {
-                // Send overflow error if the buffer was exceeded
-                Send("ERRR", "Overflow");
+                if(HandleOnOverflow)
+                    HandleOnOverflow(*this);
             }
             // Reset the buffer index for the next frame
             bufferIndex = 0;
@@ -80,9 +94,10 @@ private:
     void ProcessFrame() {
         buffer[bufferIndex] = '\0'; // Null-terminate the buffer
 
+        // Command should be 4 characters long. 
         if(bufferIndex < 4)
         {
-            Send("ERRR", "Command should be 4 characters long");
+            OnCommandNotFound(*this);
             return;
         }
         
@@ -97,12 +112,8 @@ private:
             }
         }
 
-        // Dont send error, if we dont support error ourselves. (Prevents both ends from sending this error to eachother endlessly)
-        if(strncmp(buffer, "ERRR", 4) == 0)
-            return;
-
-        // Command not found, send an error response
-        Send("ERRR", "Command not found");
+        if(OnCommandNotFound)
+            OnCommandNotFound(*this);
     }
 };
 
