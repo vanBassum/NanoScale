@@ -52,6 +52,20 @@ public:
         dataStream.println(data);
     }
 
+    void Send(const char* command, float value) {
+        char buff[32];  // Adjusted buffer size for safety
+        // Convert float to string with 4 characters before the decimal and 6 precision
+        dtostrf(value, 4, 6, buff);
+        Send(command, buff);
+    }
+
+    void Send(const char* command, int value) {
+        char buff[12];
+        // Convert integer to string in decimal base
+        itoa(value, buff, 10);
+        Send(command, buff);
+    }
+
     // Handle incoming data
     void Handle() 
     {
