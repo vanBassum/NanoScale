@@ -1,6 +1,6 @@
 # Simple Weight Measurement
 
-This project demonstrates how to measure weight using an Arduino and an HX711 load cell amplifier. By connecting the HX711 to the Arduino Nano and uploading the provided code, you can measure the weight of an object and interact with the setup using a serial terminal.
+This project demonstrates how to measure weight using an Arduino and an HX711 load cell amplifier. It utilizes the Arduino library for the HX711 created by Rob Tillaart to simplify interaction with the hardware. By connecting the HX711 to the Arduino Nano and uploading the provided code, you can measure the weight of an object and interact with the setup using a serial terminal.
 
 ## Hardware Requirements
 
@@ -8,6 +8,19 @@ This project demonstrates how to measure weight using an Arduino and an HX711 lo
 - HX711 load cell amplifier
 - Load cell
 - Connection wires
+
+## Software Requirements
+
+- Arduino IDE or compatible IDE
+- HX711 library by Rob Tillaart
+
+## Library Installation
+
+Before running the software, you need to install the HX711 library. You can install this library directly from the Arduino IDE:
+
+1. Go to **Sketch** > **Include Library** > **Manage Libraries…**
+2. In the Library Manager, enter "HX711" into the search box.
+3. Find "HX711 by Rob Tillaart" and click the **Install** button.
 
 ## Connections
 
