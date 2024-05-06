@@ -2,7 +2,7 @@
 #include "Protocol.h"
 #include "HX711.h"
 
-
+#define VERSION "00.00.01"
 #define LOADCELL_DOUT_PIN   3
 #define LOADCELL_SCK_PIN    2
 
@@ -10,8 +10,8 @@ MyProtocolHandler protocol(Serial);
 HX711 loadcell;
 
 
-void HandleError(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-
+void HandleGetVersion(MyProtocolHandler& protocol, char* data, size_t dataLength) {
+    protocol.Send("RVER", VERSION);
 }
 
 void HandleGetRawWeight(MyProtocolHandler& protocol, char* data, size_t dataLength) {
@@ -30,7 +30,7 @@ void HandleGetRawWeight(MyProtocolHandler& protocol, char* data, size_t dataLeng
 
 // Command list (use constexpr for immutability)
 constexpr Command CommandList[] = {
-    {"ERRR", HandleError},
+    {"DVER", HandleGetVersion},
     {"DRAW", HandleGetRawWeight},
 };
 
