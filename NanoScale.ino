@@ -1,115 +1,108 @@
 #include <stdlib.h>
 #include <EEPROM.h>
-#include "Protocol.h"
 #include "HX711.h"
-
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 0
-#define VERSION_PATCH 1
+#include "Framing/NewLineFraming.h"
 
 #define LOADCELL_DOUT_PIN   3
 #define LOADCELL_SCK_PIN    2
 
-#define STRINGIFY(x) #x
-#define CONCATENATE(a, b) a ## b
-#define VERSION_STRING STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)
 
-
-MyProtocolHandler protocol(Serial);
-HX711 loadcell;
-
-struct Settings
+class ICommand
 {
-    uint8_t major = VERSION_MAJOR;
-    uint8_t minor = VERSION_MINOR;
-    uint8_t patch = VERSION_PATCH;
-    int myValue = 5;
+public:
+    virtual bool Execute(IArgumentReader& reader, IArgumentWriter& writer) = 0;
 
-    void reset() {
-        *this = Settings();
+};
+
+
+
+struct CommandRecord {
+    const char command[5]; // Commands are always 4 characters long
+    ICommand* handler;
+};
+
+
+class CommandHandler
+{
+    IFraming& framing;
+    const CommandRecord* commandRegister = nullptr;
+    size_t commandCount = 0;
+
+public:
+    CommandHandler(IFraming& framing, const CommandRecord* commandRegister, size_t commandCount) : framing(framing), commandRegister(commandRegister), commandCount(commandCount) {}
+
+
+
+    void HandleCommand()
+    {
+        char commandString[32];
+        IArgumentReader& reader = framing.ReadFrame().ReadString(commandString, sizeof(commandString));
+        ICommand* command = nullptr;
+        // Find command in commandRegister
+        for (size_t i = 0; i < commandCount; i++) {
+            if (strncmp(commandRegister[i].command, commandString, 4) == 0) {
+                command = commandRegister[i].handler;
+                break;
+            }
+        }
+
+        if(command == nullptr)
+        {
+            framing.WriteFrame().WriteString("ERR").WriteString("Command not found").EndFrame();
+            return;
+        }
+
+        command->Execute(reader, framing.WriteFrame());
     }
+};
 
-    void load() {
-        EEPROM.get(0, *this);
-    }
 
-    void save() {
-        EEPROM.put(0, *this);
-    }
 
-    // TODO: The future could do upgrades between settings.
-    bool checkVersion(){
-        if(major != VERSION_MAJOR) return false;
-        if(minor != VERSION_MINOR) return false;
-        if(patch != VERSION_PATCH) return false;
+
+class TestCommand : public ICommand
+{
+    bool Execute(IArgumentReader& reader, IArgumentWriter& writer) override
+    {
+        writer.WriteString("OK").EndFrame();
         return true;
     }
-
 };
 
-Settings settings;
-
-void HandleSettings_SetMyValue(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-    settings.myValue = atoi(data);
-    protocol.Send("RMYV", "Ok");
-}
-
-void HandleSettings_GetMyValue(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-
-    protocol.Send("RMYV", settings.myValue);
-}
-
-void HandleSettings_SetDefault(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-    settings.reset();
-    protocol.Send("RREC", "Ok");
-}
-
-void HandleSettings_Save(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-    settings.save();
-    protocol.Send("RSAV", "Ok");
-}
-
-void HandleGetVersion(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-    protocol.Send("RVER", VERSION_STRING);
-}
-
-void HandleGetRawWeight(MyProtocolHandler& protocol, char* data, size_t dataLength) {
-    int averages = 7;
-    if(dataLength > 0)
-        averages = atoi(data);
-
-    float raw = loadcell.read_medavg(averages);
-    protocol.Send("RRAW", raw);
-}
-
-// Command list (use constexpr for immutability)
-constexpr Command CommandList[] = {
-    {"DVER", HandleGetVersion},
-    {"DRAW", HandleGetRawWeight},
-    {"CREC", HandleSettings_SetDefault},
-    {"CSAV", HandleSettings_Save},
-    {"DMYV", HandleSettings_GetMyValue},
-    {"CMYV", HandleSettings_SetMyValue},
+class EchoCommand : public ICommand
+{
+    bool Execute(IArgumentReader& reader, IArgumentWriter& writer) override
+    {
+        char buffer[64];
+        reader.ReadString(buffer, sizeof(buffer));
+        writer.WriteString("OK").WriteString(buffer).EndFrame();
+        return true;
+    }
 };
+
+
+const CommandRecord commandRegister[] = {
+    {"TEST", new TestCommand()},
+    {"ECHO", new EchoCommand()}
+};
+
+
+
+
+HX711 loadcell;
+NewLineFraming framing(Serial);
+CommandHandler commandHandler(framing, commandRegister, sizeof(commandRegister) / sizeof(CommandRecord));
 
 
 // Setup function
 void setup() {
-    settings.load();
-
-    // If version doenst match, return to default settings.
-    if(!settings.checkVersion()){
-        settings.reset();
-    }
-
     Serial.begin(115200); // Initialize Serial communication
-    protocol.Init(CommandList, sizeof(CommandList) / sizeof(CommandList[0]));
     loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
     loadcell.set_raw_mode();
 }
 
 // Main loop function
 void loop() {
-    protocol.Handle();
+    commandHandler.HandleCommand();
 }
+
 
