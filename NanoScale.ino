@@ -1,108 +1,116 @@
+
 #include <stdlib.h>
-#include <EEPROM.h>
 #include "HX711.h"
-#include "Framing/NewLineFraming.h"
+#include "settings.h"
+#include "oneWireDevice.h"
 
-#define LOADCELL_DOUT_PIN   3
-#define LOADCELL_SCK_PIN    2
+#define LOADCELL_DOUT_PIN 4
+#define LOADCELL_SCK_PIN 2
+#define ONEWIRE_PIN 3
 
-
-class ICommand
-{
-public:
-    virtual bool Execute(IArgumentReader& reader, IArgumentWriter& writer) = 0;
-
-};
-
-
-
-struct CommandRecord {
-    const char command[5]; // Commands are always 4 characters long
-    ICommand* handler;
-};
-
-
-class CommandHandler
-{
-    IFraming& framing;
-    const CommandRecord* commandRegister = nullptr;
-    size_t commandCount = 0;
-
-public:
-    CommandHandler(IFraming& framing, const CommandRecord* commandRegister, size_t commandCount) : framing(framing), commandRegister(commandRegister), commandCount(commandCount) {}
-
-
-
-    void HandleCommand()
-    {
-        char commandString[32];
-        IArgumentReader& reader = framing.ReadFrame().ReadString(commandString, sizeof(commandString));
-        ICommand* command = nullptr;
-        // Find command in commandRegister
-        for (size_t i = 0; i < commandCount; i++) {
-            if (strncmp(commandRegister[i].command, commandString, 4) == 0) {
-                command = commandRegister[i].handler;
-                break;
-            }
-        }
-
-        if(command == nullptr)
-        {
-            framing.WriteFrame().WriteString("ERR").WriteString("Command not found").EndFrame();
-            return;
-        }
-
-        command->Execute(reader, framing.WriteFrame());
-    }
-};
-
-
-
-
-class TestCommand : public ICommand
-{
-    bool Execute(IArgumentReader& reader, IArgumentWriter& writer) override
-    {
-        writer.WriteString("OK").EndFrame();
-        return true;
-    }
-};
-
-class EchoCommand : public ICommand
-{
-    bool Execute(IArgumentReader& reader, IArgumentWriter& writer) override
-    {
-        char buffer[64];
-        reader.ReadString(buffer, sizeof(buffer));
-        writer.WriteString("OK").WriteString(buffer).EndFrame();
-        return true;
-    }
-};
-
-
-const CommandRecord commandRegister[] = {
-    {"TEST", new TestCommand()},
-    {"ECHO", new EchoCommand()}
-};
-
-
-
-
+auto hub = OneWireHub(ONEWIRE_PIN);
+MyDevice *oneWireDevice = nullptr;
 HX711 loadcell;
-NewLineFraming framing(Serial);
-CommandHandler commandHandler(framing, commandRegister, sizeof(commandRegister) / sizeof(CommandRecord));
+Settings settings;
 
+/*
+TODO
+- Set calibration values
+- Read weight
+- Read weight raw
+*/
+
+void CMD_ResetDevice(OneWireHub *hub)
+{
+    Serial.println("Resetting device");
+    void(* resetFunc) (void) = 0; //declare reset function @ address 0
+    resetFunc();  //call reset
+}
+
+void CMD_SaveSettings(OneWireHub *hub)
+{
+    Serial.println("Saving settings to EEPROM");
+    SaveSettings(settings);
+}
+
+void CMD_LoadDefaultSettings(OneWireHub *hub)
+{
+    Serial.println("Loading default settings");
+    LoadDefaultSettings(settings);
+}
+
+void CMD_SetUUID(OneWireHub *hub)
+{
+    Serial.println("Setting UUID");
+    if(!hub->recv(settings.uuid, 7))
+        Serial.println("Failed to set UUID");
+}
+
+void CMD_ReadWeightRaw(OneWireHub *hub)
+{
+    Serial.print("Reading weight raw = ");
+    int32_t raw = 0;
+    switch (settings.hx711_mode)
+    {
+    case HX711_AVERAGE_MODE:
+        raw = loadcell.read_average(settings.hx711_samples);
+        break;
+    case HX711_MEDIAN_MODE:
+        raw = loadcell.read_median(settings.hx711_samples);
+        break;
+    case HX711_MEDAVG_MODE:
+        raw = loadcell.read_medavg(settings.hx711_samples);
+        break;
+    case HX711_RUNAVG_MODE:
+        raw = loadcell.read_runavg(settings.hx711_samples);
+        break;
+    default:
+        Serial.println("Invalid mode");
+        return;
+    }
+
+    Serial.println(raw);
+    hub->send((uint8_t*)&raw, 4);
+}
+
+
+constexpr static const Command commands[] = {
+    // Device commands
+    {0x01, CMD_ResetDevice},
+    {0x02, CMD_SaveSettings},
+    {0x03, CMD_LoadDefaultSettings},
+    {0x04, CMD_SetUUID},
+
+    // Sensor commands
+    {0x10, CMD_ReadWeightRaw},
+};
 
 // Setup function
-void setup() {
+void setup()
+{
     Serial.begin(115200); // Initialize Serial communication
+    Serial.println("Starting onewire HX711");
+
+    Serial.println("Loading settings");
+    LoadSettings(settings);
+    PrintSettings(settings);
+
+    Serial.println("Setup loadcell");
     loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
     loadcell.set_raw_mode();
+
+    Serial.println("Setup one wire device");
+    oneWireDevice = new MyDevice(settings.uuid, commands, sizeof(commands) / sizeof(Command));
+    hub.attach(*oneWireDevice);
+
+    Serial.println("Setup done");
 }
 
 // Main loop function
-void loop() {
-    commandHandler.HandleCommand();
+void loop()
+{
+    hub.poll();
+    if (hub.hasError())
+        hub.printError();
 }
-
 
