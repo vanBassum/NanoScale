@@ -23,8 +23,8 @@ public:
         if (hub->recv(&cmd, 1))
             return;
 
-        Serial.print("cmd: 0x");
-        Serial.println(cmd, HEX);
+        //Serial.print("cmd: 0x");
+        //Serial.println(cmd, HEX);
 
         for (size_t i = 0; i < commandCount; ++i)
         {

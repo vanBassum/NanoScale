@@ -13,12 +13,7 @@ MyDevice *oneWireDevice = nullptr;
 HX711 loadcell;
 Settings settings;
 
-/*
-TODO
-- Set calibration values
-- Read weight
-- Read weight raw
-*/
+int32_t rawValue = 0;
 
 void CMD_ResetDevice(OneWireHub *hub)
 {
@@ -46,31 +41,39 @@ void CMD_SetUUID(OneWireHub *hub)
         Serial.println("Failed to set UUID");
 }
 
-void CMD_ReadWeightRaw(OneWireHub *hub)
+void CMD_StartWeightRaw(OneWireHub *hub)
 {
-    Serial.print("Reading weight raw = ");
-    int32_t raw = 0;
+    Serial.print("Start measurement ");
+    uint64_t startTime = millis();
     switch (settings.hx711_mode)
     {
     case HX711_AVERAGE_MODE:
-        raw = loadcell.read_average(settings.hx711_samples);
+        rawValue = loadcell.read_average(settings.hx711_samples);
         break;
     case HX711_MEDIAN_MODE:
-        raw = loadcell.read_median(settings.hx711_samples);
+        rawValue = loadcell.read_median(settings.hx711_samples);
         break;
     case HX711_MEDAVG_MODE:
-        raw = loadcell.read_medavg(settings.hx711_samples);
+        rawValue = loadcell.read_medavg(settings.hx711_samples);
         break;
     case HX711_RUNAVG_MODE:
-        raw = loadcell.read_runavg(settings.hx711_samples);
+        rawValue = loadcell.read_runavg(settings.hx711_samples);
         break;
     default:
         Serial.println("Invalid mode");
         return;
     }
+    uint64_t endTime = millis();
 
-    Serial.println(raw);
-    hub->send((uint8_t*)&raw, 4);
+    Serial.print(" Done (");
+    Serial.print((uint32_t)(endTime - startTime));
+    Serial.println(" ms)");
+}
+
+void CMD_ReadWeightRaw(OneWireHub *hub)
+{
+    Serial.println("Sending weight raw = ");
+    hub->send((uint8_t*)&rawValue, 4);
 }
 
 
@@ -82,7 +85,8 @@ constexpr static const Command commands[] = {
     {0x04, CMD_SetUUID},
 
     // Sensor commands
-    {0x10, CMD_ReadWeightRaw},
+    {0x10, CMD_StartWeightRaw},
+    {0x11, CMD_ReadWeightRaw},
 };
 
 // Setup function
