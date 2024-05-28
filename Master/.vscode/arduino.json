@@ -3,5 +3,6 @@
     "board": "esp32:esp32:esp32",
     "sketch": "Master.ino",
     "port": "COM5",
-    "programmer": "esptool"
+    "programmer": "esptool",
+    "output": "./build"
 }

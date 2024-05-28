@@ -2,51 +2,35 @@
 #include "Address.h"
 #include "OneWire.h"
 
-class Device : public Address
+class Device
 {
-    float slope = 0;
-    float offset = 0;
 public:
+    float slope = 1;
+    float offset = 0;
+    Address address;
 
-    Device() : Address(Address::Empty()) {
+    Device() {
 
     }
 
-    Device(const Address& address) : Address(address) {
+    Device(const Address& address) : address(address) {
 
     }
 
-    Device& operator=(const Device& other) {
-        if (this != &other) {
-            memcpy(address, other.address, addressSize);
-            slope = other.slope;
-            offset = other.offset;
-        }
-        return *this;
-    }
+    Device& operator=(const Device& device) = default;
 
-    void StartMeasurement(OneWire& ds)
+    void StartMeasurement(OneWire& ds) const
     {
         ds.reset();
-        ds.select(address);
+        ds.select(address.data());
         ds.write(0x10); // Start conversion
         delay(10);
     }
 
-    void SetSlope(float slope)
-    {
-        this->slope = slope;
-    }
-
-    void SetOffset(float offset)
-    {
-        this->offset = offset;
-    }
-
-    int32_t ReadRawMeasurement(OneWire& ds)
+    int32_t ReadRawMeasurement(OneWire& ds) const
     {
         ds.reset();
-        ds.select(address);
+        ds.select(address.data());
         ds.write(0x11); // Read value
 
         int32_t value = 0;
@@ -57,19 +41,19 @@ public:
         return value;
     }
 
-    int32_t MeasureRaw(OneWire& ds)
+    int32_t MeasureRaw(OneWire& ds) const
     {
         StartMeasurement(ds);
         delay(1000);
         return ReadRawMeasurement(ds);
     }
 
-    float MeasureWeight(OneWire& ds)
+    float MeasureWeight(OneWire& ds) const
     {
         return MeasureRaw(ds) * slope + offset;
     }
     
-    void WaitForStable(OneWire& ds, int32_t margin = 300)
+    void WaitForStable(OneWire& ds, int32_t margin = 300) const
     {
         int32_t prev = MeasureRaw(ds);
         int32_t actual = MeasureRaw(ds);
@@ -82,4 +66,5 @@ public:
             change = abs(actual - prev);
         } 
     }
+
 };

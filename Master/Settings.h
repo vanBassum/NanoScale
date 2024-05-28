@@ -1,17 +1,18 @@
 #pragma once
 #include <EEPROM.h>
 
+#define DEVICE_SETTINGS_SIZE 4
+
 struct DeviceCalibration
 {
     uint8_t address[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     float slope = 1;
     float offset = 0;
-    uint32_t crc = 0;
 };
 
 struct Settings
 {
-    DeviceCalibration devices[4];
+    DeviceCalibration devices[DEVICE_SETTINGS_SIZE];
     uint32_t crc = 0;
 };
 
@@ -41,6 +42,7 @@ void SaveSettings(Settings& settings)
 {
     settings.crc = calculateCRC((uint8_t*)&settings, sizeof(Settings) - sizeof(settings.crc));
     EEPROM.put(0, settings);
+    EEPROM.commit();
 }
 
 bool LoadSettings(Settings& settings)
@@ -48,7 +50,10 @@ bool LoadSettings(Settings& settings)
     EEPROM.get(0, settings);
     uint32_t calculatedCrc = calculateCRC((uint8_t*)&settings, sizeof(Settings) - sizeof(settings.crc));
     if (settings.crc != calculatedCrc) {
-        Serial.println("CRC error: Settings are corrupted");
+        Serial.print("CRC error: Settings are corrupted found ");
+        Serial.print(settings.crc);
+        Serial.print(" calculated ");
+        Serial.println(calculatedCrc);
         Serial.println("Loading default settings");
         settings = Settings();  // Load default settings
         return false;

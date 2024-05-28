@@ -30,7 +30,7 @@ public:
     void Calibrate(Device& device)
     {
         Serial.print("Calibrating ");
-        device.Print();
+        device.address.Print();
         Serial.println();
 
         Serial.println("Waiting for stable");
@@ -47,8 +47,8 @@ public:
         float slope = dy / dx;
         float offset = y1 - slope * x1;
 
-        device.SetSlope(slope);
-        device.SetOffset(offset);
+        device.slope = slope;
+        device.offset = offset;
 
         Serial.print("x1 = ");
         Serial.println(x1);

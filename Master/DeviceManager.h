@@ -13,6 +13,19 @@ private:
     constexpr static const size_t maxDevices = 10;
     Device devices[maxDevices];
 
+    size_t FindAll(OneWire& ds, Address* addresses, size_t size)
+    {
+        size_t found = 0;
+        ds.reset_search();
+        uint8_t addr[8];
+        while (ds.search(addr))
+        {
+            addresses[found] = Address(addr);
+            found++;
+        } 
+        return found;
+    }
+
     int findInList(const Address& address, const Address* addressList, size_t size)
     {
         for(int i = 0; i < size; i++)
@@ -23,37 +36,53 @@ private:
         return -1;
     }
 
-    int findEmtpy()
+    int findInList(const Address& address, const Device* deviceList, size_t size)
     {
-        for(int i = 0; i < maxDevices; i++)
+        for(int i = 0; i < size; i++)
         {
-            if(devices[i] == Address::Empty())
+            if(deviceList[i].address == address)
                 return i;
         }
         return -1;
     }
 
-    void HandleFound(const Address& address)
+    void CheckForNewDevices(Address* discovered, size_t size)
     {
-        int empty = findEmtpy();
-        if(empty == -1)
-            return;
-        
-        devices[empty] = Device(address);
-        if(onConnect)
-            onConnect(devices[empty]);
+        for(int i = 0; i < size; i++)
+        {
+            int index = findInList(discovered[i], devices, maxDevices);
+            if(index == -1)
+            {
+                size_t emptyIndex = findInList(Address::empty, devices, maxDevices);
+                if(emptyIndex == -1)
+                {
+                    Serial.println("No space for device");
+                    return;
+                }
+                devices[emptyIndex] = Device(discovered[i]);
+                if(onConnect)
+                    onConnect(devices[emptyIndex]);
+
+            }
+        }
     }
 
-    void HandleLost(const Address& address)
+    void CheckForLostDevices(Address* discovered, size_t size)
     {
-        int index = findInList(address, devices, maxDevices);
-        if(index == -1)
-            return;
+        for(int i = 0; i < maxDevices; i++)
+        {
+            if(devices[i].address == Address::empty)
+                continue;
 
-        devices[index] = Device(Address::Empty());
-        
-        if(onDisconnect)
-            onDisconnect(devices[index]);
+            int index = findInList(devices[i].address, discovered, size);
+            if(index != -1)
+                continue;
+
+            if(onDisconnect)
+                onDisconnect(devices[i]);
+
+            devices[i] = Device(Address::empty);
+        }
     }
 
 public:
@@ -62,47 +91,23 @@ public:
     {
         for(int i = 0; i < maxDevices; i++)
         {
-            devices[i] = Device(Address::Empty());
+            devices[i] = Device(Address::empty);
         }
     }
 
     void Discover(OneWire& ds)
     {
         Address discovered[maxDevices];
-        size_t found = 0;
-        ds.reset_search();
-        uint8_t addr[8];
-        while (ds.search(addr))
-        {
-            discovered[found] = Address(addr);
-            found++;
-        } 
-
-        // Check for new devices
-        for(int i = 0; i < found; i++)
-        {
-            int index = findInList(discovered[i], devices, maxDevices);
-            if(index == -1)
-                HandleFound(discovered[i]);
-        }
-
-        // Check for lost devices
-        for(int i = 0; i < maxDevices; i++)
-        {
-            if(devices[i] == Address::Empty())
-                continue;
-
-            int index = findInList(devices[i], discovered, found);
-            if(index == -1)
-                HandleLost(devices[i]);
-        }
+        size_t found = FindAll(ds, discovered, maxDevices);
+        CheckForNewDevices(discovered, found);
+        CheckForLostDevices(discovered, found);
     }
 
     void VisitDevices(std::function<void(Device&)> visitor)
     {
         for(int i = 0; i < maxDevices; i++)
         {
-            if(devices[i] == Address::Empty())
+            if(devices[i].address == Address::empty)
                 continue;
             visitor(devices[i]);
         }

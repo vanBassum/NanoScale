@@ -1,12 +1,15 @@
 #pragma once
+#include <Arduino.h>
 
 
 class Address
 {
-protected:
+public:
+    static const Address empty;
     constexpr static const size_t addressSize = 8;
     uint8_t address[addressSize];
-public:
+    
+
     Address() {
         memset(address, 0, addressSize);
     }
@@ -23,18 +26,33 @@ public:
         return !(*this == other);
     }
 
-    void Print()
+
+    const uint8_t* data() const
     {
+        return address;
+    }
+
+
+    String ToString() const
+    {
+        String result = "";
         for(int i = 0; i < addressSize; i++)
         {
             if(i > 0)
-                Serial.print(":");
-            Serial.print(address[i], HEX);
+                result += ":";
+            if(address[i] < 16)
+                result += "0";
+            result += String(address[i], HEX);
         }
+        return result;
     }
 
-    static Address Empty()
+    
+    void Print() const
     {
-        return Address();
+        Serial.print(ToString());
     }
+
 };
+
+const Address Address::empty = Address();
