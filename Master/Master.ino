@@ -104,7 +104,7 @@ void setup()
     Serial.begin(115200); // Initialize Serial communication
     delay(1000);    //Wait so the terminal captures the first things as well
     Serial.println("Starting...");
-    LoadSettings(settings);
+
     WiFi.mode(WIFI_STA);
     wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
 
@@ -126,6 +126,17 @@ void setup()
       Serial.println(client.getLastErrorMessage());
     }
 
+    
+    LoadSettings(settings);
+
+    for(int i = 0; i < DEVICE_SETTINGS_SIZE; i++)
+    {
+        Address address(settings.devices[i].address);
+        Serial.print("Settings for device found ");
+        address.Print();
+        Serial.println();
+    }
+
 
     deviceManager.onConnect = [](Device& device) {
         deviceConnected(device);
@@ -145,7 +156,6 @@ void loop()
 
     if(i % 100 == 0)
     {
-        
         int32_t totalValue = 0;
         float totalWeight = 0;
         deviceManager.VisitDevices([&totalValue, &totalWeight](Device& device) {
@@ -163,8 +173,8 @@ void loop()
             Point sensor("weight");
             sensor.addTag("device", "nano");
             sensor.addTag("address", device.address.ToString());
-            sensor.addField("value", value / 1000.0);
-            sensor.addField("weight", weight / 1000.0);
+            sensor.addField("value", value);
+            sensor.addField("weight", weight);
             client.writePoint(sensor);
         });
 
@@ -173,15 +183,16 @@ void loop()
             // Assume bed is empty, so tare the scale
             tareWeight = totalWeight;
         }
-        else
-        {
-            Point sensor("weight");
-            sensor.addTag("device", "esp");
-            sensor.addField("value", totalValue / 1000.0);
-            sensor.addField("weight", totalWeight / 1000.0);
-            sensor.addField("tare", tareWeight / 1000.0);
-            client.writePoint(sensor);
-        } 
+
+        Point sensor("weight");
+        sensor.addTag("device", "esp");
+        sensor.addField("value", totalValue);
+        sensor.addField("weight", totalWeight);
+        sensor.addField("tare", tareWeight);
+        client.writePoint(sensor);
+
+        Serial.print("Total weight: ");
+        Serial.println(totalWeight);
     }
     i++;
     delay(100);

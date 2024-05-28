@@ -1,5 +1,6 @@
 #pragma once
-#include <EEPROM.h>
+#include <Preferences.h>
+Preferences prefs;
 
 #define DEVICE_SETTINGS_SIZE 4
 
@@ -13,56 +14,54 @@ struct DeviceCalibration
 struct Settings
 {
     DeviceCalibration devices[DEVICE_SETTINGS_SIZE];
-    uint32_t crc = 0;
 };
-
-
-// https://wiki-content.arduino.cc/en/Tutorial/LibraryExamples/EEPROMCrc
-uint32_t calculateCRC(uint8_t *data, uint32_t size)
-{
-    const uint32_t crc_table[16] = {
-        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac,
-        0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
-        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c,
-        0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c};
-
-    uint32_t crc = ~0L;
-    for (int index = 0; index < size; ++index)
-    {
-        crc = crc_table[(crc ^ data[index]) & 0x0f] ^ (crc >> 4);
-        crc = crc_table[(crc ^ (data[index] >> 4)) & 0x0f] ^ (crc >> 4);
-        crc = ~crc;
-    }
-    return crc;
-}
-
 
 
 void SaveSettings(Settings& settings)
 {
-    settings.crc = calculateCRC((uint8_t*)&settings, sizeof(Settings) - sizeof(settings.crc));
-    EEPROM.put(0, settings);
-    EEPROM.commit();
+    prefs.begin("my-app"); // use "my-app" namespace
+
+    prefs.putBytes("addr_0", settings.devices[0].address, 8);
+    prefs.putFloat("slope_0", settings.devices[0].slope);
+    prefs.putFloat("offset_0", settings.devices[0].offset);
+
+    prefs.putBytes("addr_1", settings.devices[1].address, 8);
+    prefs.putFloat("slope_1", settings.devices[1].slope);
+    prefs.putFloat("offset_1", settings.devices[1].offset);
+
+    prefs.putBytes("addr_2", settings.devices[2].address, 8);
+    prefs.putFloat("slope_2", settings.devices[2].slope);
+    prefs.putFloat("offset_2", settings.devices[2].offset);
+
+    prefs.putBytes("addr_3", settings.devices[3].address, 8);
+    prefs.putFloat("slope_3", settings.devices[3].slope);
+    prefs.putFloat("offset_3", settings.devices[3].offset);
+
+    prefs.end();
 }
 
 bool LoadSettings(Settings& settings)
 {
-    EEPROM.get(0, settings);
-    uint32_t calculatedCrc = calculateCRC((uint8_t*)&settings, sizeof(Settings) - sizeof(settings.crc));
-    if (settings.crc != calculatedCrc) {
-        Serial.print("CRC error: Settings are corrupted found ");
-        Serial.print(settings.crc);
-        Serial.print(" calculated ");
-        Serial.println(calculatedCrc);
-        Serial.println("Loading default settings");
-        settings = Settings();  // Load default settings
-        return false;
-    }
-    else
-    {
-        Serial.println("Settings loaded from EEPROM");
-        return true;
-    }
+    prefs.begin("my-app"); // use "my-app" namespace
+
+    prefs.getBytes("addr_0", settings.devices[0].address, 8);
+    settings.devices[0].slope = prefs.getFloat("slope_0", 1);
+    settings.devices[0].offset = prefs.getFloat("offset_0", 0);
+
+    prefs.getBytes("addr_1", settings.devices[1].address, 8);
+    settings.devices[1].slope = prefs.getFloat("slope_1", 1);
+    settings.devices[1].offset = prefs.getFloat("offset_1", 0);
+
+    prefs.getBytes("addr_2", settings.devices[2].address, 8);
+    settings.devices[2].slope = prefs.getFloat("slope_2", 1);
+    settings.devices[2].offset = prefs.getFloat("offset_2", 0);
+
+    prefs.getBytes("addr_3", settings.devices[3].address, 8);
+    settings.devices[3].slope = prefs.getFloat("slope_3", 1);
+    settings.devices[3].offset = prefs.getFloat("offset_3", 0);
+
+    prefs.end();
+    return true;
 }
 
 
