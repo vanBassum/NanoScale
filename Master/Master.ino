@@ -126,6 +126,19 @@ public:
         }
         return true; // Return true if all values are within the tolerance range
     }
+
+    void PrintAllMeasurements()
+    {
+        float avg = Average();
+        for (int i = 0; i < Size; i++) {
+            Serial.print(round(buffer[i] / 1000));
+            if (i < Size - 1) {
+                Serial.print(" kg, ");
+            }
+        }
+        Serial.print("Average: ");
+        Serial.println(avg);
+    }
 };
 
 
@@ -140,6 +153,11 @@ public:
     virtual void Update() {}
 };
 
+class StateMeasure;
+class StateInit;
+class StateSend;
+class StateProcess;
+
 class StateContext
 {
     State* nextState = nullptr;
@@ -153,15 +171,18 @@ public:
 
     StateContext(DeviceManager& deviceManager, OneWire& oneWire) : deviceManager(deviceManager), oneWire(oneWire)
     {
-
     }
 
     ~StateContext()
     {
         if(nextState)
+        {
             delete nextState;
+        }
         if(state)
+        {
             delete state;
+        }
     }
 
     template<typename T>
@@ -177,7 +198,9 @@ public:
         if(nextState)
         {
             if(state)
+            {
                 delete state;
+            }
             state = nextState;
             nextState = nullptr;
             if(state)
@@ -188,7 +211,9 @@ public:
         }
 
         if(state)
+        {
             state->Entry();
+        }
     }
 };
 
@@ -196,11 +221,27 @@ class StateSend : public State
 {
 public:
     constexpr static const char* TAG = "Send";
+    StateSend(StateContext& context) : State(context)
+    {
+    }
+
+    void Entry() override {
+        Serial.println("Entered send state");
+    }
+
     void Update() override
     {
         float average = context.measurements.Average();
         float tare = context.tareValue;
         float calculated = average - tare;
+
+        Serial.print("Sending data - ");
+        Serial.print("Average: ");
+        Serial.print(average);
+        Serial.print(", Tare: ");
+        Serial.print(tare);
+        Serial.print(", Calculated: ");
+        Serial.println(calculated);
 
         Point sensor("weight");
         sensor.addTag("device", "esp");
@@ -218,10 +259,21 @@ class StateProcess : public State
 {
 public:
     constexpr static const char* TAG = "Process";
+    StateProcess(StateContext& context) : State(context)
+    {
+
+    }
+
+    void Entry() override {
+        Serial.println("Entered process state");
+    }
+
     void Update() override {
         // If any value is outside 250 gram, take more measurements
         if(!context.measurements.CheckRange(250))
         {
+            Serial.println("Value outside 250 gram range. Taking more measurements.");
+            context.measurements.PrintAllMeasurements();
             context.Transition<StateMeasure>();
             return;
         }
@@ -229,10 +281,11 @@ public:
         float average = context.measurements.Average();
         if(average < 100000)
         {
+            Serial.println("Average below 100000. Setting tare value.");
             context.tareValue = average;
-            context.Transition<StateMeasure>();
-            return;
         }
+
+        context.Transition<StateSend>();
     }
 };
 
@@ -269,6 +322,7 @@ public:
 
     void Entry() override
     {
+        Serial.println("Entered measure state");
         StartMeasurement();
         started = millis();
     }
@@ -282,6 +336,8 @@ public:
 
         // Append measurement to list
         float total = ReadMeasurement();
+        Serial.print("Measurement completed. Total: ");
+        Serial.println(total);
         context.measurements.Append(total);
         context.Transition<StateProcess>();
     }
@@ -296,11 +352,19 @@ public:
 
     }
 
+    void Entry() override {
+        Serial.println("Entered init state");
+    }
+
     void Update() override
     {
+        Serial.println("Initializing device manager.");
         context.deviceManager.Discover(context.oneWire);
         if(context.deviceManager.CountDevices() == 4)
+        {
+            Serial.println("Device count is 4. Transitioning to measure state.");
             context.Transition<StateMeasure>();
+        }
     }
 };
 

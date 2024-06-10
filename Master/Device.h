@@ -4,12 +4,7 @@
 
 class Device
 {
-    int32_t MeasureRaw(OneWire& ds) const
-    {
-        StartMeasurement(ds);
-        delay(1000);
-        return ReadRawMeasurement(ds);
-    }
+
 
 public:
     float slope = 1;
@@ -53,7 +48,12 @@ public:
         return raw * slope + offset;
     }
 
-
+    int32_t MeasureRaw(OneWire& ds) const
+    {
+        StartMeasurement(ds);
+        delay(1000);
+        return ReadRawMeasurement(ds);
+    }
 
 
 
