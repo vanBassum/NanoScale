@@ -112,4 +112,16 @@ public:
             visitor(devices[i]);
         }
     }
+
+    int CountDevices() const
+    {
+        int result = 0;
+        for(int i = 0; i < maxDevices; i++)
+        {
+            if(devices[i].address == Address::empty)
+                continue;
+            result++;
+        }
+        return result;
+    }
 };

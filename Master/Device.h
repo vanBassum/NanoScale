@@ -4,6 +4,13 @@
 
 class Device
 {
+    int32_t MeasureRaw(OneWire& ds) const
+    {
+        StartMeasurement(ds);
+        delay(1000);
+        return ReadRawMeasurement(ds);
+    }
+
 public:
     float slope = 1;
     float offset = 0;
@@ -41,18 +48,15 @@ public:
         return value;
     }
 
-    int32_t MeasureRaw(OneWire& ds) const
+    float ApplyScaling(int32_t raw) const
     {
-        StartMeasurement(ds);
-        delay(1000);
-        return ReadRawMeasurement(ds);
+        return raw * slope + offset;
     }
 
-    float MeasureWeight(OneWire& ds) const
-    {
-        return MeasureRaw(ds) * slope + offset;
-    }
-    
+
+
+
+
     void WaitForStable(OneWire& ds, int32_t margin = 300) const
     {
         int32_t prev = MeasureRaw(ds);

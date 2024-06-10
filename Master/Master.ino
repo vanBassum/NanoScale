@@ -8,17 +8,11 @@
 #include <InfluxDbCloud.h>
 #include "Config.h"
 
-
-
-
 Settings settings;
-OneWire ds(4);
+OneWire oneWire(4);
 DeviceManager deviceManager;
 WiFiMulti wifiMulti;
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
-
-  
-
 
 int findDeviceSettings(const Address& address)
 {
@@ -74,7 +68,7 @@ bool tryLoadDeviceSettings(Device& device)
 
 void calibrateDevice(Device& device)
 {
-    Calibrator calibrator(ds);
+    Calibrator calibrator(oneWire);
     calibrator.Calibrate(device);
 }
 
@@ -98,6 +92,220 @@ void deviceDisconnected(Device& device)
     Serial.println();
 }
 
+
+class CircleBuffer
+{   
+    constexpr static const int Size = 16;
+    float buffer[Size] = {0};
+    int wr = 0;
+
+public:
+
+    void Append(float value)
+    {
+        buffer[wr] = value;
+        wr = (wr + 1) % Size; // Update the write index and handle wrap-around
+    }
+
+    float Average()
+    {
+        float sum = 0;
+        for (int i = 0; i < Size; i++) {
+            sum += buffer[i];
+        }
+        return sum / Size; // Calculate and return the average
+    }
+
+    bool CheckRange(float tolerance)
+    {
+        float avg = Average();
+        for (int i = 0; i < Size; i++) {
+            if (abs(buffer[i] - avg) > tolerance) {
+                return false; // Return false if any value is outside the tolerance range
+            }
+        }
+        return true; // Return true if all values are within the tolerance range
+    }
+};
+
+
+class StateContext;
+class State
+{
+protected:
+    StateContext& context;
+public:
+    State(StateContext& context) : context(context){}
+    virtual void Entry() {}
+    virtual void Update() {}
+};
+
+class StateContext
+{
+    State* nextState = nullptr;
+    State* state = nullptr;
+
+public:
+    DeviceManager& deviceManager;
+    OneWire& oneWire;
+    CircleBuffer measurements;
+    float tareValue = 0;
+
+    StateContext(DeviceManager& deviceManager, OneWire& oneWire) : deviceManager(deviceManager), oneWire(oneWire)
+    {
+
+    }
+
+    ~StateContext()
+    {
+        if(nextState)
+            delete nextState;
+        if(state)
+            delete state;
+    }
+
+    template<typename T>
+    void Transition()
+    {
+        static_assert(std::is_base_of<State, T>::value, "T must be a subclass of State");
+        nextState = new T(*this);
+    }
+
+    void Update()
+    {
+        
+        if(nextState)
+        {
+            if(state)
+                delete state;
+            state = nextState;
+            nextState = nullptr;
+            if(state)
+            {
+                state->Entry();
+            }
+            
+        }
+
+        if(state)
+            state->Entry();
+    }
+};
+
+class StateSend : public State
+{
+public:
+    constexpr static const char* TAG = "Send";
+    void Update() override
+    {
+        float average = context.measurements.Average();
+        float tare = context.tareValue;
+        float calculated = average - tare;
+
+        Point sensor("weight");
+        sensor.addTag("device", "esp");
+        //sensor.addField("value", totalValue);
+        sensor.addField("average", average);
+        sensor.addField("tare", tare);
+        sensor.addField("calculated", calculated);
+        client.writePoint(sensor);
+        context.Transition<StateMeasure>();
+    }
+};
+
+
+class StateProcess : public State
+{
+public:
+    constexpr static const char* TAG = "Process";
+    void Update() override {
+        // If any value is outside 250 gram, take more measurements
+        if(!context.measurements.CheckRange(250))
+        {
+            context.Transition<StateMeasure>();
+            return;
+        }
+
+        float average = context.measurements.Average();
+        if(average < 100000)
+        {
+            context.tareValue = average;
+            context.Transition<StateMeasure>();
+            return;
+        }
+    }
+};
+
+
+class StateMeasure : public State
+{
+    const uint32_t delayMs = 1000;
+    uint32_t started = 0;
+
+    void StartMeasurement()
+    {
+        context.deviceManager.VisitDevices([&](Device& device){
+            device.StartMeasurement(context.oneWire);
+        });
+    }
+
+    float ReadMeasurement()
+    {
+        float total = 0;
+        context.deviceManager.VisitDevices([&](Device& device){
+            int32_t raw = device.ReadRawMeasurement(context.oneWire);
+            float weight = device.ApplyScaling(raw);
+            total += weight;
+        });
+        return total;
+    }
+
+public:
+    constexpr static const char* TAG = "Measure";
+    StateMeasure(StateContext& context) : State(context)
+    {
+
+    }
+
+    void Entry() override
+    {
+        StartMeasurement();
+        started = millis();
+    }
+
+    void Update() override
+    {
+        // Wait for conversion to finish
+        uint32_t current = millis();
+        if (current - started < delayMs)
+            return;
+
+        // Append measurement to list
+        float total = ReadMeasurement();
+        context.measurements.Append(total);
+        context.Transition<StateProcess>();
+    }
+};
+
+class StateInit : public State
+{
+public:
+    constexpr static const char* TAG = "Init";
+    StateInit(StateContext& context) : State(context)
+    {
+
+    }
+
+    void Update() override
+    {
+        context.deviceManager.Discover(context.oneWire);
+        if(context.deviceManager.CountDevices() == 4)
+            context.Transition<StateMeasure>();
+    }
+};
+
+
+StateContext context(deviceManager, oneWire);
 
 void setup()
 {
@@ -145,55 +353,15 @@ void setup()
     deviceManager.onDisconnect = [](Device& device) {
         deviceDisconnected(device);
     };
-}
 
+
+    context.Transition<StateInit>();
+
+}
 
 void loop()
 {
-    static uint32_t i = 0;
-    static float tareWeight = 0;
-    deviceManager.Discover(ds);
 
-    if(i % 100 == 0)
-    {
-        int32_t totalValue = 0;
-        float totalWeight = 0;
-        deviceManager.VisitDevices([&totalValue, &totalWeight](Device& device) {
-            int32_t value = device.MeasureRaw(ds);
-            float weight = device.MeasureWeight(ds);
-            Serial.print("Device = ");
-            device.address.Print();
-            Serial.print(" Value = ");
-            Serial.print(value);
-            Serial.print(" Weight = ");
-            Serial.println(weight);
-            totalWeight += weight;
-            totalValue += value;
+    context.Update();
 
-            Point sensor("weight");
-            sensor.addTag("device", "nano");
-            sensor.addTag("address", device.address.ToString());
-            sensor.addField("value", value);
-            sensor.addField("weight", weight);
-            client.writePoint(sensor);
-        });
-
-        if(totalWeight < 60000)
-        {
-            // Assume bed is empty, so tare the scale
-            tareWeight = totalWeight;
-        }
-
-        Point sensor("weight");
-        sensor.addTag("device", "esp");
-        sensor.addField("value", totalValue);
-        sensor.addField("weight", totalWeight);
-        sensor.addField("tare", tareWeight);
-        client.writePoint(sensor);
-
-        Serial.print("Total weight: ");
-        Serial.println(totalWeight);
-    }
-    i++;
-    delay(100);
 }
